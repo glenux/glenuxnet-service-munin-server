@@ -1,4 +1,5 @@
-#!/bin/bash
+#!/bin/sh
+
 NODES=${NODES:-}
 SNMP_NODES=${SNMP_NODES:-}
 MUNIN_USER=${MUNIN_USER:-user}
@@ -18,13 +19,13 @@ set ssl-verify=ignore
 EOF
 fi
 
-if [ -n "${SMTP_HOST}" -a -n "${SMTP_PORT}" ] ; then
+if [ -n "${SMTP_HOST}" ] && [ -n "${SMTP_PORT}" ] ; then
   cat >> "${MAIL_CONF_PATH}" <<EOF
 set smtp=smtp://${SMTP_HOST}:${SMTP_PORT}
 EOF
 fi
 
-if [ -n "${SMTP_USERNAME}" -a -n "${SMTP_PASSWORD}" ] ; then
+if [ -n "${SMTP_USERNAME}" ] && [ -n "${SMTP_PASSWORD}" ] ; then
   cat >> "${MAIL_CONF_PATH}" <<EOF
 set smtp-auth=login
 set smtp-auth-user=${SMTP_USERNAME}
@@ -32,8 +33,11 @@ set smtp-auth-password=${SMTP_PASSWORD}
 EOF
 fi
 
+# Disable kernel logging support feature which does not exist within docker
+sed -i -e '/module(load="imklog")/d' /etc/rsyslog.conf
+
 grep -q 'contact.mail' /etc/munin/munin.conf; rc=$?
-if  [ $rc -ne 0 -a -n "${ALERT_RECIPIENT}" -a -n "${ALERT_SENDER}" ] ; then
+if  [ $rc -ne 0 ] && [ -n "${ALERT_RECIPIENT}" ] && [ -n "${ALERT_SENDER}" ] ; then
   echo "Setup alert email from ${ALERT_SENDER} to ${ALERT_RECIPIENT}"
   echo "contact.mail.command mail -r ${ALERT_SENDER} -s '${SMTP_MESSAGE}' ${ALERT_RECIPIENT}" >> /etc/munin/munin.conf
   if [ "${SMTP_ALWAYS_SEND}" = true ] ; then
@@ -46,13 +50,13 @@ fi
 # generate node list
 for NODE in $NODES
 do
-  NAME=`echo $NODE | cut -d ":" -f1`
-  HOST=`echo $NODE | cut -d ":" -f2`
-  PORT=`echo $NODE | cut -d ":" -f3`
-  if [ ${#PORT} -eq 0 ]; then
+  	NAME="$(echo "$NODE" | cut -d ":" -f1)"
+  	HOST="$(echo "$NODE" | cut -d ":" -f2)"
+  	PORT="$(echo "$NODE" | cut -d ":" -f3)"
+  if [ "${PORT}" -eq 0 ]; then
       PORT=4949
   fi
-  if ! grep -q $HOST /etc/munin/munin.conf ; then
+  if ! grep -q "$HOST" /etc/munin/munin.conf ; then
     cat << EOF >> /etc/munin/munin.conf
 [$NAME]
     address $HOST
@@ -66,13 +70,13 @@ done
 # generate node list
 for NODE in $SNMP_NODES
 do
-  NAME=`echo $NODE | cut -d ":" -f1`
-  HOST=`echo $NODE | cut -d ":" -f2`
-  PORT=`echo $NODE | cut -d ":" -f3`
+  NAME="$(echo "$NODE" | cut -d ":" -f1)"
+  HOST="$(echo "$NODE" | cut -d ":" -f2)"
+  PORT="$(echo "$NODE" | cut -d ":" -f3)"
   if [ ${#PORT} -eq 0 ]; then
       PORT=4949
   fi
-  if ! grep -q $HOST /etc/munin/munin.conf ; then
+  if ! grep -q "$HOST" /etc/munin/munin.conf ; then
     cat << EOF >> /etc/munin/munin.conf
 [$NAME]
     address $HOST
@@ -102,16 +106,21 @@ fi
 
 # start rsyslogd
 /usr/sbin/rsyslogd
+
 # start cron
 /usr/sbin/cron
+
 # start local munin-node
 /usr/sbin/munin-node
 echo "Using the following munin nodes:"
-echo $NODES
+echo "$NODES"
+
 # start nginx
 /usr/sbin/nginx
+
 # show logs
 echo "Tailing /var/log/syslog..."
+touch /var/log/syslog /var/log/munin/munin-update.log
 tail -F /var/log/syslog /var/log/munin/munin-update.log & pid=$!
 echo "tail -F running in $pid"
 
